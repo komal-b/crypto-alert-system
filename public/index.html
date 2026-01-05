@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>⚡ Live Crypto Dashboard</title>
+    
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        body { font-family: 'Courier New', monospace; background: #222; color: #fff; text-align: center; padding: 20px; }
+        h1 { color: #f3ba2f; }
+        .container { max-width: 800px; margin: 0 auto; }
+        #price-display { font-size: 40px; font-weight: bold; margin: 20px 0; }
+        .alert-box { background: #333; padding: 20px; border-radius: 10px; margin-top: 20px; }
+        input, select { padding: 10px; font-size: 16px; text-align: center; margin: 5px; }
+        button { padding: 10px 20px; font-size: 16px; background: #f3ba2f; border: none; cursor: pointer; font-weight: bold; }
+        button:hover { background: #d4a017; }
+        #status { margin-top: 10px; color: #0f0; min-height: 20px; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>⚡ Live Crypto Tracker</h1>
+        
+        <select id="coin-select">
+            <option value="bitcoin">Bitcoin (BTC)</option>
+            <option value="ethereum">Ethereum (ETH)</option>
+        </select>
+        
+        <div id="price-display">Waiting for data...</div>
+        <canvas id="cryptoChart"></canvas>
+
+        <div class="alert-box">
+            <h3>🔔 Set Price Alert</h3>
+            <p>Select coin above, then set target:</p>
+            <input type="number" id="alert-price" placeholder="Target Price">
+            <button onclick="setAlert()">Set Alert</button>
+            <div id="status"></div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        const priceDisplay = document.getElementById('price-display');
+        const statusMsg = document.getElementById('status');
+        const coinSelect = document.getElementById('coin-select');
+        
+        // --- STATE MANAGEMENT ---
+        // This variable tracks what the user wants to see
+        let currentCoin = 'bitcoin'; 
+
+        // Listen for dropdown changes
+        coinSelect.addEventListener('change', (e) => {
+            currentCoin = e.target.value; // Update to 'ethereum' or 'bitcoin'
+            
+            // Visual Updates
+            chart.data.datasets[0].label = `${currentCoin.toUpperCase()} Price (USD)`;
+            chart.data.datasets[0].borderColor = currentCoin === 'bitcoin' ? '#f3ba2f' : '#627eea'; // Gold for BTC, Blue for ETH
+            
+            // Clear the graph so it doesn't mix BTC and ETH prices
+            chart.data.labels = [];
+            chart.data.datasets[0].data = [];
+            chart.update();
+            
+            priceDisplay.innerText = "Loading...";
+        });
+
+        // --- SETUP GRAPH ---
+        const ctx = document.getElementById('cryptoChart').getContext('2d');
+        const chart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'BITCOIN Price (USD)',
+                    data: [],
+                    borderColor: '#f3ba2f',
+                    borderWidth: 2,
+                    tension: 0.1
+                }]
+            },
+            options: { responsive: true, animation: false }
+        });
+
+        // --- LISTEN FOR PRICES ---
+        socket.on('price-tick', (data) => {
+            // MAGIC LINE: Use the variable [currentCoin] to pick the right data
+            const price = data[currentCoin]; 
+            const time = new Date(data.timestamp).toLocaleTimeString();
+
+            if (!price) return; // Safety check
+
+            priceDisplay.innerText = `$${price.toLocaleString()}`;
+
+            if (chart.data.labels.length > 20) {
+                chart.data.labels.shift(); 
+                chart.data.datasets[0].data.shift();
+            }
+            chart.data.labels.push(time);
+            chart.data.datasets[0].data.push(price);
+            chart.update();
+            
+            document.title = `$${price} | ${currentCoin.toUpperCase()}`;
+        });
+
+        // --- ALERTS ---
+        socket.on('alert-popup', (message) => {
+            statusMsg.style.color = 'red';
+            statusMsg.innerText = `🚨 ${message}`;
+            alert(`🚨 ${message}`);
+        });
+
+        socket.on('alert-confirmed', (msg) => {
+            statusMsg.style.color = '#0f0';
+            statusMsg.innerText = msg;
+        });
+
+        function setAlert() {
+            const coin = currentCoin; // Use the currently selected coin
+            const target = document.getElementById('alert-price').value;
+            
+            if (!target) return alert("Enter a price!");
+            
+            // Send to server
+            socket.emit('set-alert', { coin: coin, target: target });
+        }
+    </script>
+</body>
+</html>
